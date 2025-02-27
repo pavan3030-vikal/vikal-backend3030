@@ -4,3 +4,4 @@ flask-cors==4.0.1  # Corrected to lowercase hyphen (matches pip install)
 youtube-transcript-api==0.6.1
 pymongo==4.9.0    # Added for MongoDB
 python-dotenv==1.0.0  # Versioned for consistency
+gunicorn==21.2.0
