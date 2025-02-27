@@ -2,27 +2,28 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import requests
+import os
+from dotenv import load_dotenv
 from pymongo import MongoClient
-from datetime import datetime, timedelta
+from datetime import datetime
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 
+load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000", "https://*.cloudfront.net", "https://vikal-frontend.vercel.app"], methods=["GET", "POST", "OPTIONS"])
+CORS(app, origins=["http://localhost:3000", "https://*.cloudfront.net"], methods=["GET", "POST", "OPTIONS"])
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_API_KEY = "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"
-MONGO_URI = "mongodb+srv://VIKALADMIN:pavan3030@vikal.8ohwq.mongodb.net/?retryWrites=true&w=majority&appName=VIKAL"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI, tls=True, tlsAllowInvalidCertificates=False)
 db = client["vikal"]
 chat_history = db["chat_history"]
 exam_dates = db["exam_dates"]
 users = db["users"]
-stats_collection = db["stats"]
-feedback_collection = db["feedback"]
 
 def call_openai(prompt, max_tokens=300, model="gpt-3.5-turbo"):
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
@@ -38,23 +39,6 @@ def call_openai(prompt, max_tokens=300, model="gpt-3.5-turbo"):
     except requests.RequestException as e:
         logger.error(f"OpenAI API error: {e}")
         raise Exception(f"Failed to generate response: {e}")
-
-def update_stats(user_id, action):
-    now = datetime.utcnow()
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    stats_collection.update_one(
-        {"date": today},
-        {"$setOnInsert": {"active_users": [], "questions_solved": 0, "explanations_given": 0}},
-        upsert=True
-    )
-    stats_collection.update_one(
-        {"date": today, "active_users": {"$ne": user_id}},
-        {"$addToSet": {"active_users": user_id}}
-    )
-    if action == "solve":
-        stats_collection.update_one({"date": today}, {"$inc": {"questions_solved": 1}})
-    elif action == "explain":
-        stats_collection.update_one({"date": today}, {"$inc": {"explanations_given": 1}})
 
 @app.route('/test-mongo', methods=['GET'])
 def test_mongo():
@@ -132,7 +116,6 @@ def explain():
         resources = resources_part.replace("Resources", "").strip().split("\n")[:3] if resources_part else []
         resource_list = [{"title": r.split(" - ")[0].strip(), "url": r.split(" - ")[1].strip() if " - " in r else r.strip()} for r in resources if r.strip()]
 
-        update_stats(user_id, "explain")
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
@@ -188,7 +171,7 @@ def solve():
 
         Ensure the solution is accurate, well-structured, and tailored for a student audience. Use clear language and provide examples where appropriate.
         """
-        response = call_openai(prompt, max_tokens=300, model="gpt-4")
+        response = call_openai(prompt, max_tokens=300, model="gpt-4")  # GPT-4 for accuracy
         parts = re.split(r'###\s', response)
         notes_part = next((part for part in parts if part.startswith("Solution")), "")
         notes = notes_part.replace("Solution", "").strip() if notes_part else response
@@ -197,7 +180,6 @@ def solve():
         resources = resources_part.replace("Resources", "").strip().split("\n")[:5] if resources_part else []
         resource_list = [{"title": r.split(" - ")[0].strip(), "url": r.split(" - ")[1].strip() if " - " in r else r.strip()} for r in resources if r.strip()]
 
-        update_stats(user_id, "solve")
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
@@ -267,6 +249,7 @@ def summarize_youtube():
         notes = notes_part.replace("Notes", "").strip().split("\n")[:10] if notes_part else []
         keywords = keywords_part.replace("Keywords", "").strip().split("\n") if keywords_part else []
 
+        # Combine summary and analogy into notes for UI consistency
         combined_notes = f"{summary}\n\n**Analogy:** {analogy}\n\n**Key Points:**\n" + "\n".join(notes)
         flashcards = [f"{kw.split(' - ')[0]} - {kw.split(' - ')[1]}" for kw in keywords[:5] if " - " in kw]
         resources = [
@@ -275,7 +258,6 @@ def summarize_youtube():
             {"title": "Khan Academy", "url": "https://www.khanacademy.org"}
         ]
 
-        update_stats(user_id, None)
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
@@ -317,7 +299,6 @@ def chat_youtube():
         prompt = f"Based on this YouTube video transcript: {transcript_text}, answer the following question: {user_query}"
         response = call_openai(prompt, max_tokens=500)
 
-        update_stats(user_id, None)
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
@@ -342,66 +323,12 @@ def manage_exam_dates():
             )
         return jsonify({"message": "Exam dates updated"}), 200
 
-@app.route('/stats', methods=['GET'])
-def get_stats():
-    try:
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        stats_doc = stats_collection.find_one({"date": today})
-        if not stats_doc:
-            return jsonify({
-                "active_users": 0,
-                "questions_solved": 0,
-                "explanations_given": 0
-            }), 200
-        
-        active_users_count = len(stats_doc.get("active_users", []))
-        return jsonify({
-            "active_users": active_users_count,
-            "questions_solved": stats_doc.get("questions_solved", 0),
-            "explanations_given": stats_doc.get("explanations_given", 0)
-        }), 200
-    except Exception as e:
-        logger.error(f"Error fetching stats: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/feedback', methods=['POST'])
-def submit_feedback():
-    data = request.get_json()
-    user_id = data.get('user_id', 'anonymous')
-    feedback = data.get('feedback')
-    if not feedback:
-        return jsonify({'error': 'No feedback provided'}), 400
-    
-    try:
-        feedback_collection.insert_one({
-            "user_id": user_id,
-            "feedback": feedback,
-            "timestamp": datetime.utcnow()
-        })
-        return jsonify({"message": "Feedback submitted successfully"}), 200
-    except Exception as e:
-        logger.error(f"Error submitting feedback: {e}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/upgrade-to-pro', methods=['POST'])
-def upgrade_to_pro():
-    data = request.get_json()
-    user_id = data.get('user_id')
-    if not user_id:
-        return jsonify({'error': 'No user_id provided'}), 400
-    
-    try:
-        users.update_one({"_id": user_id}, {"$set": {"isPro": True, "chatCount": 0}})
-        return jsonify({"message": "User upgraded to Pro successfully"}), 200
-    except Exception as e:
-        logger.error(f"Error upgrading user to Pro: {e}")
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/')
 def home():
     return jsonify({"message": "API is running", "status": "ok"})
 
 if __name__ == '__main__':
-    port = 5000  # Hardcoded port since no env vars
+    port = int(os.getenv("PORT", 5001))
     logger.info(f"Starting Flask server on port {port}")
     app.run(host='127.0.0.1', port=port, debug=True)
