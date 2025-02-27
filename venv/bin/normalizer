@@ -1,4 +1,4 @@
-#!/Users/karthikvangapandu/Desktop/VIKAL-4040/backend/venv/bin/python3
+#!/Users/karthikvangapandu/Desktop/VIKAL-4040/vikal-backend/vikal-backend/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
