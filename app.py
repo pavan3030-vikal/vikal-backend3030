@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
+CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, supports_credentials=True)
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_API_KEY = "your_openai_api_key_here"  # Replace with your actual OpenAI API key
