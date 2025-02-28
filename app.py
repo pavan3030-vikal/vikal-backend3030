@@ -13,18 +13,17 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# CORS setup as a fallback (though we're handling manually below)
+# CORS setup
 CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, supports_credentials=True)
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_API_KEY = "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"  # Replace with your actual OpenAI API key
+OPENAI_API_KEY = "your_openai_api_key_here"  # Replace with your actual OpenAI API key
 client = MongoClient("mongodb://mongo:vEvIixiKtkFvKHuMkvTfzjVfCjYbZhGF@shortline.proxy.rlwy.net:42954")
 db = client["vikal"]
 chat_history = db["chat_history"]
 exam_dates = db["exam_dates"]
 users = db["users"]
 
-# Log incoming requests
 @app.before_request
 def log_request():
     logger.info(f"Request: {request.method} {request.path} from {request.origin}")
@@ -563,7 +562,4 @@ def home():
     logger.info(f"GET response headers for /: {response.headers}")
     return response
 
-if __name__ == '__main__':
-    port = int(os.getenv("PORT", 5001))
-    logger.info(f"Starting Flask server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+# No app.run() - Railway uses Gunicorn
