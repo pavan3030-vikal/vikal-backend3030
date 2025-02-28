@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import logging
 import requests
@@ -13,27 +13,18 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Explicit CORS setup for your frontend origin
+# CORS setup as a fallback (though we're handling manually below)
 CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, supports_credentials=True)
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_API_KEY = "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"  # Replace with your actual OpenAI API key
+OPENAI_API_KEY = "your_openai_api_key_here"  # Replace with your actual OpenAI API key
 client = MongoClient("mongodb://mongo:vEvIixiKtkFvKHuMkvTfzjVfCjYbZhGF@shortline.proxy.rlwy.net:42954")
 db = client["vikal"]
 chat_history = db["chat_history"]
 exam_dates = db["exam_dates"]
 users = db["users"]
 
-# Log and enforce CORS headers for all responses
-@app.after_request
-def add_cors_headers(response):
-    logger.info(f"Response headers before: {response.headers}")
-    response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    logger.info(f"Response headers after: {response.headers}")
-    return response
-
+# Log incoming requests
 @app.before_request
 def log_request():
     logger.info(f"Request: {request.method} {request.path} from {request.origin}")
@@ -53,19 +44,43 @@ def call_openai(prompt, max_tokens=300, model="gpt-3.5-turbo"):
         logger.error(f"OpenAI API error: {e}")
         raise Exception(f"Failed to generate response: {e}")
 
-@app.route('/test-mongo', methods=['GET'])
+@app.route('/test-mongo', methods=['GET', 'OPTIONS'])
 def test_mongo():
+    if request.method == 'OPTIONS':
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /test-mongo: {response.headers}")
+        return response
+
     try:
         logger.info("Attempting MongoDB connection...")
         info = client.server_info()
         logger.info(f"MongoDB connection successful: {info}")
-        return jsonify({"message": "MongoDB connected successfully", "info": info}), 200
+        response = jsonify({"message": "MongoDB connected successfully", "info": info})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"GET response headers for /test-mongo: {response.headers}")
+        return response, 200
     except Exception as e:
         logger.error(f"MongoDB connection failed: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        response = jsonify({"error": str(e)})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /test-mongo: {response.headers}")
+        return response, 500
 
-@app.route('/stats', methods=['GET'])
+@app.route('/stats', methods=['GET', 'OPTIONS'])
 def get_stats():
+    if request.method == 'OPTIONS':
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /stats: {response.headers}")
+        return response
+
     try:
         logger.info("Fetching stats from MongoDB")
         active_users = users.count_documents({"chatCount": {"$gt": 0}})
@@ -78,18 +93,34 @@ def get_stats():
             "explanations_given": total_explanations
         }
         logger.info(f"Stats fetched: {stats}")
-        return jsonify(stats), 200
+        response = jsonify(stats)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"GET response headers for /stats: {response.headers}")
+        return response, 200
     except Exception as e:
         logger.error(f"Error fetching stats: {e}")
-        return jsonify({"error": str(e)}), 500
+        response = jsonify({"error": str(e)})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /stats: {response.headers}")
+        return response, 500
 
 @app.route('/explain', methods=['POST', 'OPTIONS'])
 def explain():
     if request.method == 'OPTIONS':
-        return '', 204  # Handle preflight request manually
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /explain: {response.headers}")
+        return response
+
     data = request.get_json()
     if not data or 'topic' not in data:
-        return jsonify({'error': 'No topic provided'}), 400
+        response = jsonify({'error': 'No topic provided'})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /explain: {response.headers}")
+        return response, 400
 
     user_id = data.get('user_id', 'anonymous')
     subject = data.get('subject')
@@ -113,7 +144,10 @@ def explain():
             user = users.find_one({"_id": user_id})
 
         if not user["isPro"] and user["chatCount"] >= 3:
-            return jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"}), 403
+            response = jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"})
+            response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+            logger.info(f"Limit reached response headers for /explain: {response.headers}")
+            return response, 403
 
         prompt = f"""
         Explain {data['topic']} comprehensively using the following format:
@@ -144,8 +178,8 @@ def explain():
 
         Ensure all explanations are accurate, well-structured, and tailored for a student audience. Use clear language and provide examples where appropriate.
         """
-        response = call_openai(prompt, max_tokens=700)
-        parts = re.split(r'###\s', response)
+        response_text = call_openai(prompt, max_tokens=700)
+        parts = re.split(r'###\s', response_text)
         notes_parts = [part for part in parts if part.strip() and not part.startswith("Flashcards") and not part.startswith("Resources")]
         notes = "\n\n".join(notes_parts).strip()
 
@@ -170,18 +204,34 @@ def explain():
             "timestamp": datetime.utcnow()
         })
 
-        return jsonify({"notes": notes, "flashcards": flashcards, "resources": resource_list})
+        response = jsonify({"notes": notes, "flashcards": flashcards, "resources": resource_list})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"POST response headers for /explain: {response.headers}")
+        return response
     except Exception as e:
         logger.error(f"Explain endpoint error: {e}")
-        return jsonify({'error': str(e)}), 500
+        response = jsonify({'error': str(e)})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /explain: {response.headers}")
+        return response, 500
 
 @app.route('/solve', methods=['POST', 'OPTIONS'])
 def solve():
     if request.method == 'OPTIONS':
-        return '', 204  # Handle preflight request manually
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /solve: {response.headers}")
+        return response
+
     data = request.get_json()
     if not data or 'problem' not in data:
-        return jsonify({'error': 'No problem provided'}), 400
+        response = jsonify({'error': 'No problem provided'})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /solve: {response.headers}")
+        return response, 400
 
     user_id = data.get('user_id', 'anonymous')
     subject = data.get('subject')
@@ -189,7 +239,10 @@ def solve():
     style = data.get('explanation_style', 'teacher')
     category = exam if exam else subject
     if not category:
-        return jsonify({'error': 'Subject or exam required'}), 400
+        response = jsonify({'error': 'Subject or exam required'})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /solve: {response.headers}")
+        return response, 400
 
     try:
         logger.info(f"Fetching user {user_id} from MongoDB")
@@ -207,7 +260,10 @@ def solve():
             user = users.find_one({"_id": user_id})
 
         if not user["isPro"] and user["chatCount"] >= 3:
-            return jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"}), 403
+            response = jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"})
+            response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+            logger.info(f"Limit reached response headers for /solve: {response.headers}")
+            return response, 403
 
         max_tokens = 100 if style.lower() == "smart" else 300 if style.lower() == "research" else 200
         prompt = f"""
@@ -228,10 +284,10 @@ def solve():
 
         Ensure the solution is accurate, well-structured, and tailored for a student audience. Use clear language and provide examples where appropriate.
         """
-        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")
-        parts = re.split(r'###\s', response)
+        response_text = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")
+        parts = re.split(r'###\s', response_text)
         notes_part = next((part for part in parts if part.startswith("Solution")), "")
-        notes = notes_part.replace("Solution", "").strip() if notes_part else response
+        notes = notes_part.replace("Solution", "").strip() if notes_part else response_text
 
         resources_part = next((part for part in parts if part.startswith("Resources")), "")
         resources = resources_part.replace("Resources", "").strip().split("\n")[:5] if resources_part else []
@@ -251,25 +307,44 @@ def solve():
             "timestamp": datetime.utcnow()
         })
 
-        return jsonify({"notes": notes, "resources": resource_list})
+        response = jsonify({"notes": notes, "resources": resource_list})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"POST response headers for /solve: {response.headers}")
+        return response
     except Exception as e:
         logger.error(f"Solve endpoint error: {e}")
-        return jsonify({'error': str(e)}), 500
+        response = jsonify({'error': str(e)})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /solve: {response.headers}")
+        return response, 500
 
 @app.route('/summarize-youtube', methods=['POST', 'OPTIONS'])
 def summarize_youtube():
     if request.method == 'OPTIONS':
-        return '', 204  # Handle preflight request manually
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /summarize-youtube: {response.headers}")
+        return response
+
     data = request.get_json()
     video_url = data.get('videoUrl')
     user_id = data.get('user_id', 'anonymous')
 
     if not video_url:
-        return jsonify({'error': 'No video URL provided'}), 400
+        response = jsonify({'error': 'No video URL provided'})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /summarize-youtube: {response.headers}")
+        return response, 400
 
     video_id_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', video_url)
     if not video_id_match:
-        return jsonify({'error': 'Invalid YouTube video URL'}), 400
+        response = jsonify({'error': 'Invalid YouTube video URL'})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /summarize-youtube: {response.headers}")
+        return response, 400
     
     video_id = video_id_match.group(1)
     
@@ -289,11 +364,17 @@ def summarize_youtube():
             user = users.find_one({"_id": user_id})
 
         if not user["isPro"] and user["chatCount"] >= 3:
-            return jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"}), 403
+            response = jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"})
+            response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+            logger.info(f"Limit reached response headers for /summarize-youtube: {response.headers}")
+            return response, 403
 
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
         if not transcript:
-            return jsonify({'error': 'No transcript available for this video'}), 400
+            response = jsonify({'error': 'No transcript available for this video'})
+            response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+            logger.info(f"Error response headers for /summarize-youtube: {response.headers}")
+            return response, 400
         
         transcript_text = "\n".join([f"[{item['start']:.1f}s] {item['text']}" for item in transcript])
         prompt = f"""
@@ -311,8 +392,8 @@ def summarize_youtube():
         In addition to the bullet points, extract the most important keywords and any complex words not known to the average reader as well as any acronyms mentioned. For each keyword and complex word, provide an explanation and definition based on its occurrence in the transcription.
         Please ensure that the summary, bullet points, and explanations fit within the 330-word limit, while still offering a comprehensive and clear understanding of the video's content. Use the text above: Video Title {video_id} {transcript_text}.
         """
-        response = call_openai(prompt, max_tokens=700)
-        parts = re.split(r'###\s', response)
+        response_text = call_openai(prompt, max_tokens=700)
+        parts = re.split(r'###\s', response_text)
         summary_part = next((part for part in parts if part.startswith("Summary")), "")
         analogy_part = next((part for part in parts if part.startswith("Analogy")), "")
         notes_part = next((part for part in parts if part.startswith("Notes")), "")
@@ -345,22 +426,38 @@ def summarize_youtube():
             "timestamp": datetime.utcnow()
         })
 
-        return jsonify({"notes": combined_notes, "flashcards": flashcards, "resources": resources})
+        response = jsonify({"notes": combined_notes, "flashcards": flashcards, "resources": resources})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"POST response headers for /summarize-youtube: {response.headers}")
+        return response
     except Exception as e:
         logger.error(f"Error summarizing YouTube video: {e}")
-        return jsonify({'error': str(e)}), 500
+        response = jsonify({'error': str(e)})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /summarize-youtube: {response.headers}")
+        return response, 500
 
 @app.route('/chat-youtube', methods=['POST', 'OPTIONS'])
 def chat_youtube():
     if request.method == 'OPTIONS':
-        return '', 204  # Handle preflight request manually
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /chat-youtube: {response.headers}")
+        return response
+
     data = request.get_json()
     video_id = data.get('video_id')
     user_query = data.get('query')
     user_id = data.get('user_id', 'anonymous')
 
     if not video_id or not user_query:
-        return jsonify({'error': 'Missing video_id or query'}), 400
+        response = jsonify({'error': 'Missing video_id or query'})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /chat-youtube: {response.headers}")
+        return response, 400
 
     try:
         logger.info(f"Fetching user {user_id} from MongoDB")
@@ -378,15 +475,21 @@ def chat_youtube():
             user = users.find_one({"_id": user_id})
 
         if not user["isPro"] and user["chatCount"] >= 3:
-            return jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"}), 403
+            response = jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"})
+            response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+            logger.info(f"Limit reached response headers for /chat-youtube: {response.headers}")
+            return response, 403
 
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
         if not transcript:
-            return jsonify({'error': 'No transcript available for this video'}), 400
+            response = jsonify({'error': 'No transcript available for this video'})
+            response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+            logger.info(f"Error response headers for /chat-youtube: {response.headers}")
+            return response, 400
         
         transcript_text = "\n".join([f"[{item['start']:.1f}s] {item['text']}" for item in transcript])
         prompt = f"Based on this YouTube video transcript: {transcript_text}, answer the following question: {user_query}"
-        response = call_openai(prompt, max_tokens=500)
+        response_text = call_openai(prompt, max_tokens=500)
 
         if not user["isPro"]:
             logger.info(f"Incrementing chat count for user {user_id}")
@@ -396,25 +499,41 @@ def chat_youtube():
         chat_history.insert_one({
             "user_id": user_id,
             "question": user_query,
-            "response": response,
+            "response": response_text,
             "category": "youtube",
             "style": "chat",
             "timestamp": datetime.utcnow()
         })
 
-        return jsonify({'response': response})
+        response = jsonify({'response': response_text})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"POST response headers for /chat-youtube: {response.headers}")
+        return response
     except Exception as e:
         logger.error(f"Error chatting with YouTube video: {e}")
-        return jsonify({'error': str(e)}), 500
+        response = jsonify({'error': str(e)})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"Error response headers for /chat-youtube: {response.headers}")
+        return response, 500
 
 @app.route('/exam-dates', methods=['GET', 'PUT', 'OPTIONS'])
 def manage_exam_dates():
     if request.method == 'OPTIONS':
-        return '', 204  # Handle preflight request manually
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, PUT, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /exam-dates: {response.headers}")
+        return response
+
     user_id = request.args.get('user_id', 'anonymous')
     if request.method == 'GET':
         dates = {doc['exam']: doc['date'] for doc in exam_dates.find({"user_id": user_id})}
-        return jsonify(dates)
+        response = jsonify(dates)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"GET response headers for /exam-dates: {response.headers}")
+        return response
     elif request.method == 'PUT':
         data = request.get_json()
         for exam, date in data.items():
@@ -423,13 +542,26 @@ def manage_exam_dates():
                 {"$set": {"date": date}},
                 upsert=True
             )
-        return jsonify({"message": "Exam dates updated"}), 200
+        response = jsonify({"message": "Exam dates updated"})
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        logger.info(f"PUT response headers for /exam-dates: {response.headers}")
+        return response, 200
 
 @app.route('/', methods=['GET', 'OPTIONS'])
 def home():
     if request.method == 'OPTIONS':
-        return '', 204  # Handle preflight request manually
-    return jsonify({"message": "API is running", "status": "ok"})
+        response = make_response('', 204)
+        response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '86400'
+        logger.info(f"Preflight response headers for /: {response.headers}")
+        return response
+
+    response = jsonify({"message": "API is running", "status": "ok"})
+    response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+    logger.info(f"GET response headers for /: {response.headers}")
+    return response
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5001))
