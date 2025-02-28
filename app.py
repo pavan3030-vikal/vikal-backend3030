@@ -14,19 +14,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Adjusted CORS configuration
 CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MONGO_URI = os.getenv("MONGO_URI")
-client = MongoClient(MONGO_URI, tls=True, tlsAllowInvalidCertificates=False)
-db = client["vikal"]
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:vEvIixiKtkFvKHuMkvTfzjVfCjYbZhGF@shortline.proxy.rlwy.net:42954")
+client = MongoClient(MONGO_URI)
+db = client["vikal"]  # Assuming "vikal" as the database name; adjust if different
 chat_history = db["chat_history"]
 exam_dates = db["exam_dates"]
 users = db["users"]
 
-# Debug logging for requests
 @app.before_request
 def log_request():
     logger.info(f"Request: {request.method} {request.path} from {request.origin}")
@@ -49,14 +47,18 @@ def call_openai(prompt, max_tokens=300, model="gpt-3.5-turbo"):
 @app.route('/test-mongo', methods=['GET'])
 def test_mongo():
     try:
-        client.server_info()
-        return jsonify({"message": "MongoDB connected successfully"}), 200
+        logger.info("Attempting MongoDB connection...")
+        info = client.server_info()
+        logger.info(f"MongoDB connection successful: {info}")
+        return jsonify({"message": "MongoDB connected successfully", "info": info}), 200
     except Exception as e:
+        logger.error(f"MongoDB connection failed: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/stats', methods=['GET'])
 def get_stats():
     try:
+        logger.info("Fetching stats from MongoDB")
         active_users = users.count_documents({"chatCount": {"$gt": 0}})
         total_questions = chat_history.count_documents({"style": {"$in": ["smart", "step", "teacher", "research"]}})
         total_explanations = chat_history.count_documents({"style": "generic"})
@@ -66,6 +68,7 @@ def get_stats():
             "questions_solved": total_questions,
             "explanations_given": total_explanations
         }
+        logger.info(f"Stats fetched: {stats}")
         return jsonify(stats), 200
     except Exception as e:
         logger.error(f"Error fetching stats: {e}")
@@ -84,8 +87,11 @@ def explain():
     category = exam if exam else subject if subject else "generic"
 
     try:
+        logger.info(f"Fetching user {user_id} from MongoDB")
         user = users.find_one({"_id": user_id})
+        logger.info(f"User fetch result: {user}")
         if not user:
+            logger.info(f"Inserting new user {user_id}")
             users.insert_one({
                 "_id": user_id,
                 "email": data.get("email", "unknown"),
@@ -140,8 +146,10 @@ def explain():
         resource_list = [{"title": r.split(" - ")[0].strip(), "url": r.split(" - ")[1].strip() if " - " in r else r.strip()} for r in resources if r.strip()]
 
         if not user["isPro"]:
+            logger.info(f"Incrementing chat count for user {user_id}")
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
+        logger.info(f"Inserting chat history for user {user_id}")
         chat_history.insert_one({
             "user_id": user_id,
             "question": data['topic'],
@@ -153,6 +161,7 @@ def explain():
 
         return jsonify({"notes": notes, "flashcards": flashcards, "resources": resource_list})
     except Exception as e:
+        logger.error(f"Explain endpoint error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/solve', methods=['POST'])
@@ -170,8 +179,11 @@ def solve():
         return jsonify({'error': 'Subject or exam required'}), 400
 
     try:
+        logger.info(f"Fetching user {user_id} from MongoDB")
         user = users.find_one({"_id": user_id})
+        logger.info(f"User fetch result: {user}")
         if not user:
+            logger.info(f"Inserting new user {user_id}")
             users.insert_one({
                 "_id": user_id,
                 "email": data.get("email", "unknown"),
@@ -203,7 +215,7 @@ def solve():
 
         Ensure the solution is accurate, well-structured, and tailored for a student audience. Use clear language and provide examples where appropriate.
         """
-        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")
+        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")  # GPT-4 for accuracy
         parts = re.split(r'###\s', response)
         notes_part = next((part for part in parts if part.startswith("Solution")), "")
         notes = notes_part.replace("Solution", "").strip() if notes_part else response
@@ -213,8 +225,10 @@ def solve():
         resource_list = [{"title": r.split(" - ")[0].strip(), "url": r.split(" - ")[1].strip() if " - " in r else r.strip()} for r in resources if r.strip()]
 
         if not user["isPro"]:
+            logger.info(f"Incrementing chat count for user {user_id}")
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
+        logger.info(f"Inserting chat history for user {user_id}")
         chat_history.insert_one({
             "user_id": user_id,
             "question": data['problem'],
@@ -226,6 +240,7 @@ def solve():
 
         return jsonify({"notes": notes, "resources": resource_list})
     except Exception as e:
+        logger.error(f"Solve endpoint error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/summarize-youtube', methods=['POST'])
@@ -244,8 +259,11 @@ def summarize_youtube():
     video_id = video_id_match.group(1)
     
     try:
+        logger.info(f"Fetching user {user_id} from MongoDB")
         user = users.find_one({"_id": user_id})
+        logger.info(f"User fetch result: {user}")
         if not user:
+            logger.info(f"Inserting new user {user_id}")
             users.insert_one({
                 "_id": user_id,
                 "email": data.get("email", "unknown"),
@@ -299,8 +317,10 @@ def summarize_youtube():
         ]
 
         if not user["isPro"]:
+            logger.info(f"Incrementing chat count for user {user_id}")
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
+        logger.info(f"Inserting chat history for user {user_id}")
         chat_history.insert_one({
             "user_id": user_id,
             "question": f"Summarize YouTube video {video_url}",
@@ -326,8 +346,11 @@ def chat_youtube():
         return jsonify({'error': 'Missing video_id or query'}), 400
 
     try:
+        logger.info(f"Fetching user {user_id} from MongoDB")
         user = users.find_one({"_id": user_id})
+        logger.info(f"User fetch result: {user}")
         if not user:
+            logger.info(f"Inserting new user {user_id}")
             users.insert_one({
                 "_id": user_id,
                 "email": data.get("email", "unknown"),
@@ -349,8 +372,10 @@ def chat_youtube():
         response = call_openai(prompt, max_tokens=500)
 
         if not user["isPro"]:
+            logger.info(f"Incrementing chat count for user {user_id}")
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
+        logger.info(f"Inserting chat history for user {user_id}")
         chat_history.insert_one({
             "user_id": user_id,
             "question": user_query,
