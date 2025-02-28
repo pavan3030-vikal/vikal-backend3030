@@ -14,8 +14,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Fix CORS: Remove trailing slash, ensure frontend domain is correct
-CORS(app, origins=["https://vikal-new-production.up.railway.app"], methods=["GET", "POST", "OPTIONS"])
+# Adjusted CORS configuration
+CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -25,6 +25,11 @@ db = client["vikal"]
 chat_history = db["chat_history"]
 exam_dates = db["exam_dates"]
 users = db["users"]
+
+# Debug logging for requests
+@app.before_request
+def log_request():
+    logger.info(f"Request: {request.method} {request.path} from {request.origin}")
 
 def call_openai(prompt, max_tokens=300, model="gpt-3.5-turbo"):
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
@@ -52,7 +57,6 @@ def test_mongo():
 @app.route('/stats', methods=['GET'])
 def get_stats():
     try:
-        # Calculate stats from MongoDB
         active_users = users.count_documents({"chatCount": {"$gt": 0}})
         total_questions = chat_history.count_documents({"style": {"$in": ["smart", "step", "teacher", "research"]}})
         total_explanations = chat_history.count_documents({"style": "generic"})
@@ -199,7 +203,7 @@ def solve():
 
         Ensure the solution is accurate, well-structured, and tailored for a student audience. Use clear language and provide examples where appropriate.
         """
-        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")  # GPT-4 for accuracy
+        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")
         parts = re.split(r'###\s', response)
         notes_part = next((part for part in parts if part.startswith("Solution")), "")
         notes = notes_part.replace("Solution", "").strip() if notes_part else response
@@ -286,7 +290,6 @@ def summarize_youtube():
         notes = notes_part.replace("Notes", "").strip().split("\n")[:10] if notes_part else []
         keywords = keywords_part.replace("Keywords", "").strip().split("\n") if keywords_part else []
 
-        # Combine summary and analogy into notes for UI consistency
         combined_notes = f"{summary}\n\n**Analogy:** {analogy}\n\n**Key Points:**\n" + "\n".join(notes)
         flashcards = [f"{kw.split(' - ')[0]} - {kw.split(' - ')[1]}" for kw in keywords[:5] if " - " in kw]
         resources = [
@@ -385,5 +388,4 @@ def home():
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5001))
     logger.info(f"Starting Flask server on port {port}")
-    # Bind to 0.0.0.0 for Railway deployment
     app.run(host='0.0.0.0', port=port, debug=False)
