@@ -14,7 +14,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=["https://vikal-new-production.up.railway.app/"], methods=["GET", "POST", "OPTIONS"])
+# Fix CORS: Remove trailing slash, ensure frontend domain is correct
+CORS(app, origins=["https://vikal-new-production.up.railway.app"], methods=["GET", "POST", "OPTIONS"])
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -46,6 +47,24 @@ def test_mongo():
         client.server_info()
         return jsonify({"message": "MongoDB connected successfully"}), 200
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/stats', methods=['GET'])
+def get_stats():
+    try:
+        # Calculate stats from MongoDB
+        active_users = users.count_documents({"chatCount": {"$gt": 0}})
+        total_questions = chat_history.count_documents({"style": {"$in": ["smart", "step", "teacher", "research"]}})
+        total_explanations = chat_history.count_documents({"style": "generic"})
+        
+        stats = {
+            "active_users": active_users,
+            "questions_solved": total_questions,
+            "explanations_given": total_explanations
+        }
+        return jsonify(stats), 200
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/explain', methods=['POST'])
@@ -119,6 +138,15 @@ def explain():
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
+        chat_history.insert_one({
+            "user_id": user_id,
+            "question": data['topic'],
+            "response": notes,
+            "category": category,
+            "style": style,
+            "timestamp": datetime.utcnow()
+        })
+
         return jsonify({"notes": notes, "flashcards": flashcards, "resources": resource_list})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -152,7 +180,7 @@ def solve():
         if not user["isPro"] and user["chatCount"] >= 3:
             return jsonify({"error": "Chat limit reached. Upgrade to Pro for unlimited chats!"}), 403
 
-        max_tokens = 100 if style.lower() == "100_words" else 300 if style.lower() == "research" else 200
+        max_tokens = 100 if style.lower() == "smart" else 300 if style.lower() == "research" else 200
         prompt = f"""
         Solve this problem: {data['problem']} using the following format based on the style '{style}':
 
@@ -171,7 +199,7 @@ def solve():
 
         Ensure the solution is accurate, well-structured, and tailored for a student audience. Use clear language and provide examples where appropriate.
         """
-        response = call_openai(prompt, max_tokens=300, model="gpt-4")  # GPT-4 for accuracy
+        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")  # GPT-4 for accuracy
         parts = re.split(r'###\s', response)
         notes_part = next((part for part in parts if part.startswith("Solution")), "")
         notes = notes_part.replace("Solution", "").strip() if notes_part else response
@@ -182,6 +210,15 @@ def solve():
 
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
+
+        chat_history.insert_one({
+            "user_id": user_id,
+            "question": data['problem'],
+            "response": notes,
+            "category": category,
+            "style": style,
+            "timestamp": datetime.utcnow()
+        })
 
         return jsonify({"notes": notes, "resources": resource_list})
     except Exception as e:
@@ -220,7 +257,7 @@ def summarize_youtube():
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
         if not transcript:
             return jsonify({'error': 'No transcript available for this video'}), 400
-
+        
         transcript_text = "\n".join([f"[{item['start']:.1f}s] {item['text']}" for item in transcript])
         prompt = f"""
         Your output should use the following template:
@@ -260,6 +297,15 @@ def summarize_youtube():
 
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
+
+        chat_history.insert_one({
+            "user_id": user_id,
+            "question": f"Summarize YouTube video {video_url}",
+            "response": combined_notes,
+            "category": "youtube",
+            "style": "summary",
+            "timestamp": datetime.utcnow()
+        })
 
         return jsonify({"notes": combined_notes, "flashcards": flashcards, "resources": resources})
     except Exception as e:
@@ -302,6 +348,15 @@ def chat_youtube():
         if not user["isPro"]:
             users.update_one({"_id": user_id}, {"$inc": {"chatCount": 1}})
 
+        chat_history.insert_one({
+            "user_id": user_id,
+            "question": user_query,
+            "response": response,
+            "category": "youtube",
+            "style": "chat",
+            "timestamp": datetime.utcnow()
+        })
+
         return jsonify({'response': response})
     except Exception as e:
         logger.error(f"Error chatting with YouTube video: {e}")
@@ -323,7 +378,6 @@ def manage_exam_dates():
             )
         return jsonify({"message": "Exam dates updated"}), 200
 
-
 @app.route('/')
 def home():
     return jsonify({"message": "API is running", "status": "ok"})
@@ -331,4 +385,5 @@ def home():
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5001))
     logger.info(f"Starting Flask server on port {port}")
-    app.run(host='127.0.0.1', port=port, debug=True)
+    # Bind to 0.0.0.0 for Railway deployment
+    app.run(host='0.0.0.0', port=port, debug=False)
