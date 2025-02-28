@@ -6,20 +6,33 @@ from pymongo import MongoClient
 from datetime import datetime
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# Explicit CORS setup for your frontend origin
 CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, supports_credentials=True)
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_API_KEY = "your_openai_api_key_here"  # Replace with your actual OpenAI API key
 client = MongoClient("mongodb://mongo:vEvIixiKtkFvKHuMkvTfzjVfCjYbZhGF@shortline.proxy.rlwy.net:42954")
-db = client["vikal"]  # Adjust if your Railway MongoDB database name is different
+db = client["vikal"]
 chat_history = db["chat_history"]
 exam_dates = db["exam_dates"]
 users = db["users"]
+
+# Log and enforce CORS headers for all responses
+@app.after_request
+def add_cors_headers(response):
+    logger.info(f"Response headers before: {response.headers}")
+    response.headers['Access-Control-Allow-Origin'] = 'https://vikal-new-production.up.railway.app'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    logger.info(f"Response headers after: {response.headers}")
+    return response
 
 @app.before_request
 def log_request():
@@ -70,8 +83,10 @@ def get_stats():
         logger.error(f"Error fetching stats: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/explain', methods=['POST'])
+@app.route('/explain', methods=['POST', 'OPTIONS'])
 def explain():
+    if request.method == 'OPTIONS':
+        return '', 204  # Handle preflight request manually
     data = request.get_json()
     if not data or 'topic' not in data:
         return jsonify({'error': 'No topic provided'}), 400
@@ -160,8 +175,10 @@ def explain():
         logger.error(f"Explain endpoint error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/solve', methods=['POST'])
+@app.route('/solve', methods=['POST', 'OPTIONS'])
 def solve():
+    if request.method == 'OPTIONS':
+        return '', 204  # Handle preflight request manually
     data = request.get_json()
     if not data or 'problem' not in data:
         return jsonify({'error': 'No problem provided'}), 400
@@ -239,8 +256,10 @@ def solve():
         logger.error(f"Solve endpoint error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/summarize-youtube', methods=['POST'])
+@app.route('/summarize-youtube', methods=['POST', 'OPTIONS'])
 def summarize_youtube():
+    if request.method == 'OPTIONS':
+        return '', 204  # Handle preflight request manually
     data = request.get_json()
     video_url = data.get('videoUrl')
     user_id = data.get('user_id', 'anonymous')
@@ -331,8 +350,10 @@ def summarize_youtube():
         logger.error(f"Error summarizing YouTube video: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/chat-youtube', methods=['POST'])
+@app.route('/chat-youtube', methods=['POST', 'OPTIONS'])
 def chat_youtube():
+    if request.method == 'OPTIONS':
+        return '', 204  # Handle preflight request manually
     data = request.get_json()
     video_id = data.get('video_id')
     user_query = data.get('query')
@@ -386,8 +407,10 @@ def chat_youtube():
         logger.error(f"Error chatting with YouTube video: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/exam-dates', methods=['GET', 'PUT'])
+@app.route('/exam-dates', methods=['GET', 'PUT', 'OPTIONS'])
 def manage_exam_dates():
+    if request.method == 'OPTIONS':
+        return '', 204  # Handle preflight request manually
     user_id = request.args.get('user_id', 'anonymous')
     if request.method == 'GET':
         dates = {doc['exam']: doc['date'] for doc in exam_dates.find({"user_id": user_id})}
@@ -402,8 +425,10 @@ def manage_exam_dates():
             )
         return jsonify({"message": "Exam dates updated"}), 200
 
-@app.route('/')
+@app.route('/', methods=['GET', 'OPTIONS'])
 def home():
+    if request.method == 'OPTIONS':
+        return '', 204  # Handle preflight request manually
     return jsonify({"message": "API is running", "status": "ok"})
 
 if __name__ == '__main__':
