@@ -329,6 +329,6 @@ def home():
     return jsonify({"message": "API is running", "status": "ok"})
 
 if __name__ == '__main__':
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.getenv("PORT", 5050))
     logger.info(f"Starting Flask server on port {port}")
     app.run(host='127.0.0.1', port=port, debug=True)
