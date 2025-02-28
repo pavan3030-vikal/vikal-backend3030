@@ -2,14 +2,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import logging
 import requests
-import os
-from dotenv import load_dotenv
 from pymongo import MongoClient
 from datetime import datetime
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -17,10 +14,9 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "https://vikal-new-production.up.railway.app"}}, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:vEvIixiKtkFvKHuMkvTfzjVfCjYbZhGF@shortline.proxy.rlwy.net:42954")
-client = MongoClient(MONGO_URI)
-db = client["vikal"]  # Assuming "vikal" as the database name; adjust if different
+OPENAI_API_KEY = "your_openai_api_key_here"  # Replace with your actual OpenAI API key
+client = MongoClient("mongodb://mongo:vEvIixiKtkFvKHuMkvTfzjVfCjYbZhGF@shortline.proxy.rlwy.net:42954")
+db = client["vikal"]  # Adjust if your Railway MongoDB database name is different
 chat_history = db["chat_history"]
 exam_dates = db["exam_dates"]
 users = db["users"]
@@ -215,7 +211,7 @@ def solve():
 
         Ensure the solution is accurate, well-structured, and tailored for a student audience. Use clear language and provide examples where appropriate.
         """
-        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")  # GPT-4 for accuracy
+        response = call_openai(prompt, max_tokens=max_tokens, model="gpt-4")
         parts = re.split(r'###\s', response)
         notes_part = next((part for part in parts if part.startswith("Solution")), "")
         notes = notes_part.replace("Solution", "").strip() if notes_part else response
