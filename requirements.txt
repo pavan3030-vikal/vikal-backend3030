@@ -1,7 +1,8 @@
 flask==3.0.0
 requests==2.31.0
-flask-cors==4.0.1  # Corrected to lowercase hyphen (matches pip install)
+flask-cors==4.0.1
 youtube-transcript-api==0.6.1
-pymongo==4.9.0    # Added for MongoDB
-python-dotenv==1.0.0  # Versioned for consistency
+pymongo==4.3.3  # Downgraded for better TLS support (if needed)
+python-dotenv==1.0.0
 gunicorn==21.2.0
+certifi==2024.2.2  # Ensures latest SSL certificates
